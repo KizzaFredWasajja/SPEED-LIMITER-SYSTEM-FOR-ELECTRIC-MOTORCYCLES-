@@ -8,4 +8,4 @@ Controlling the speed of the motor maintaining it withing a safe riding range, k
 - System powered.
 - Speed control of the motor using a potentiometer knob.
 - monitor speed and warning message on the display.
-- Realise motor won't exceed a preset limit ,of 0.16km/ Jr as set in the project
+- Realise motor won't exceed a preset limit ,of 0.16km/hr as set in the project
