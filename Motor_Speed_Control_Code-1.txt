@@ -1,0 +1,138 @@
+#include <LiquidCrystal.h>
+
+// ================== PIN DEFINITIONS ==================
+const int rs = 12, en = 11, d4 = 6, d5 = 5, d6 = 4, d7 = 3;
+LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+
+#define IN1          7
+#define IN2          8
+#define ENA          9
+
+// Hall Effect Sensor
+#define HALL_SENSOR  2
+
+// Potentiometer for manual speed control
+#define SPEED_POT    A0
+
+// Constants
+const float MAX_SPEED_KMH = 0.180;
+const float WHEEL_CIRCUMFERENCE_M = 0.01884;
+
+volatile unsigned long pulseCount = 0;
+unsigned long lastTime = 0;
+float currentSpeedKmh = 0.0;
+int currentPWM = 0;
+
+unsigned long limitStartTime = 0;
+bool isSpeedLimited = false;
+
+// ISR for Hall sensor
+void hallISR() {
+  pulseCount++;
+}
+
+void setup() {
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(ENA, OUTPUT);
+  
+  pinMode(HALL_SENSOR, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(HALL_SENSOR), hallISR, RISING);
+
+  pinMode(SPEED_POT, INPUT);
+
+  Serial.begin(9600);
+  lcd.begin(16, 2);
+  lcd.clear();
+  lcd.print("Spd Control");
+  lcd.setCursor(0, 1);
+  lcd.print("Max: ");
+  lcd.print(MAX_SPEED_KMH, 3);
+  lcd.print(" km/h");
+
+  digitalWrite(IN1, HIGH);
+  digitalWrite(IN2, LOW);
+
+  lastTime = millis();
+}
+
+void loop() {
+  unsigned long currentTime = millis();
+
+  // === Read Potentiometer ===
+  int potValue = analogRead(SPEED_POT);
+  int targetPWM = map(potValue, 0, 1023, 0, 255);
+
+  // === Hall Sensor Pulse Counting ===
+  static int lastState = HIGH;
+  int currentState = digitalRead(HALL_SENSOR);
+
+  if (lastState == HIGH && currentState == LOW) {
+    pulseCount++;
+  }
+  lastState = currentState;
+
+  // === Update Speed & Control every 1000 ms ===
+  if (currentTime - lastTime >= 1000) {
+    unsigned long pulses = pulseCount;
+    pulseCount = 0;
+
+    // Calculate speed in km/h
+    float revPerMin = pulses * 60;                    // Assuming 1 pulse per revolution
+    float speedkph = revPerMin * WHEEL_CIRCUMFERENCE_M * 0.06;
+    currentSpeedKmh = speedkph;
+
+    // === Speed Limiting Logic with 10-second hold ===
+    if (currentSpeedKmh > MAX_SPEED_KMH) {
+      currentPWM = 100;
+      isSpeedLimited = true;
+      limitStartTime = currentTime;
+    } 
+    else if (isSpeedLimited) {
+      if (currentTime - limitStartTime >= 10000) {
+        isSpeedLimited = false;
+      }
+    }
+
+    // Apply PWM
+    if (!isSpeedLimited) {
+      currentPWM = targetPWM;
+    }
+
+    analogWrite(ENA, currentPWM);
+
+    // === Update LCD with Over Speed / Good Speed Status ===
+    lcd.clear();
+    
+    // First Line: Speed
+    lcd.setCursor(0, 0);
+    lcd.print("Spd:");
+    lcd.print(currentSpeedKmh, 2);
+    lcd.print("km/h");
+
+    // Second Line: PWM + Status
+    lcd.setCursor(0, 1);
+
+    if (currentPWM == 0) {
+      // Motor is stopped → Show Potentiometer value
+      lcd.print("Pot:");
+      lcd.print(targetPWM);
+      lcd.print("  STAND-BY");
+    } 
+    else {
+      // Motor is running → Show PWM + Status
+      lcd.print("PWM:");
+      lcd.print(currentPWM);
+      lcd.print(" ");
+      
+      if (currentSpeedKmh > MAX_SPEED_KMH) {
+        lcd.print("OVERSPD");
+      } else {
+        lcd.print("GOODSPD");
+      }
+    }
+
+
+    lastTime = currentTime;
+  }
+}
